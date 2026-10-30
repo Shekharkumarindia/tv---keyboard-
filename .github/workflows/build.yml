@@ -2,20 +2,100 @@ name: Build TV Keyboard APK
 on: [push, workflow_dispatch]
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: 'temurin'
-      - name: Setup Gradle
-        uses: gradle/gradle-build-action@v2
-      - name: Build APK
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      
+      - name: Create Full Project
         run: |
-          echo "plugins { id 'com.android.application' }" > build.gradle
-          gradle assembleDebug
-      - uses: actions/upload-artifact@v4
+          rm -rf app
+          mkdir -p app/src/main/java/com/tv/keyboard
+          mkdir -p app/src/main/res/xml
+          mkdir -p app/src/main/res/layout
+          
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.tv.keyboard">
+          <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+          <uses-feature android:name="android.software.leanback" android:required="true"/>
+          <application android:label="Auto2Digit TV Keyboard">
+          <service android:name=".Auto2DigitIME" android:label="Auto2Digit TV" android:permission="android.permission.BIND_INPUT_METHOD" android:exported="true"><intent-filter><action android:name="android.view.InputMethod"/></intent-filter><meta-data android:name="android.view.im" android:resource="@xml/method"/></service>
+          <activity android:name=".MainActivity" android:exported="true" android:theme="@android:style/Theme.Leanback"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/><category android:name="android.intent.category.LEANBACK_LAUNCHER"/></intent-filter></activity>
+          </application>
+          </manifest>
+          EOF
+          
+          cat > app/src/main/java/com/tv/keyboard/Auto2DigitIME.java << 'EOF'
+          package com.tv.keyboard;
+          import android.inputmethodservice.InputMethodService;
+          import android.inputmethodservice.Keyboard;
+          import android.inputmethodservice.KeyboardView;
+          import android.view.View;
+          import android.view.inputmethod.InputConnection;
+          import android.view.KeyEvent;
+          public class Auto2DigitIME extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
+          private StringBuilder buffer=new StringBuilder();
+          String mapCode(String c){if(c.equals("00"))return " ";if(c.equals("27"))return "DEL";if(c.equals("28"))return "ENTER";try{int n=Integer.parseInt(c);if(n>=1&&n<=26)return String.valueOf((char)(64+n));}catch(Exception e){}return null;}
+          public View onCreateInputView(){KeyboardView kv=(KeyboardView)getLayoutInflater().inflate(R.layout.keyboard_view,null);kv.setKeyboard(new Keyboard(this,R.xml.keys));kv.setOnKeyboardActionListener(this);kv.setPreviewEnabled(false);return kv;}
+          public void onKey(int code,int[] k){InputConnection ic=getCurrentInputConnection();if(ic==null)return;if(code>=1000&&code<=1009){buffer.append(code-1000);if(buffer.length()==2){String r=mapCode(buffer.toString());buffer.setLength(0);if(r!=null){if(r.equals("DEL"))ic.deleteSurroundingText(1,0);else if(r.equals("ENTER"))ic.sendKeyEvent(new KeyEvent(0,4));else ic.commitText(r,1);}}}else if(code==-5){ic.deleteSurroundingText(1,0);buffer.setLength(0);}else if(code==-4){ic.sendKeyEvent(new KeyEvent(0,4));}}
+          public void onPress(int i){} public void onRelease(int i){} public void onText(CharSequence c){} public void swipeLeft(){} public void swipeRight(){} public void swipeDown(){} public void swipeUp(){}
+          }
+          EOF
+          
+          cat > app/src/main/java/com/tv/keyboard/MainActivity.java << 'EOF'
+          package com.tv.keyboard;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.os.Bundle;
+          import android.provider.Settings;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          public class MainActivity extends Activity {
+          protected void onCreate(Bundle b){super.onCreate(b);LinearLayout l=new LinearLayout(this);l.setOrientation(1);l.setPadding(50,100,50,50);TextView t=new TextView(this);t.setText("Auto2Digit TV Keyboard\n01=A 02=B ... 26=Z\n00=SPACE 27=DEL\n08 05 12 12 15 = HELLO");t.setTextSize(18);Button b1=new Button(this);b1.setText("ENABLE KEYBOARD");b1.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)));Button b2=new Button(this);b2.setText("SET AS DEFAULT");b2.setOnClickListener(v->((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showInputMethodPicker());l.addView(t);l.addView(b1);l.addView(b2);setContentView(l);}
+          }
+          EOF
+          
+          cat > app/src/main/res/xml/keys.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Keyboard xmlns:android="http://schemas.android.com/apk/res/android" android:keyWidth="10%p" android:keyHeight="20%p" android:horizontalGap="0.5%p" android:verticalGap="0.5%p"><Row><Key android:codes="1000" android:keyLabel="0"/><Key android:codes="1001" android:keyLabel="1"/><Key android:codes="1002" android:keyLabel="2"/><Key android:codes="1003" android:keyLabel="3"/><Key android:codes="1004" android:keyLabel="4"/><Key android:codes="1005" android:keyLabel="5"/><Key android:codes="1006" android:keyLabel="6"/><Key android:codes="1007" android:keyLabel="7"/><Key android:codes="1008" android:keyLabel="8"/><Key android:codes="1009" android:keyLabel="9"/></Row><Row><Key android:codes="-5" android:keyLabel="DEL 27" android:keyWidth="50%p"/><Key android:codes="-4" android:keyLabel="ENTER 28" android:keyWidth="50%p"/></Row></Keyboard>
+          EOF
+          
+          cat > app/src/main/res/xml/method.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?><input-method xmlns:android="http://schemas.android.com/apk/res/android"><subtype android:label="Auto2Digit TV" android:imeSubtypeLocale="en_US" android:imeSubtypeMode="keyboard"/></input-method>
+          EOF
+          
+          cat > app/src/main/res/layout/keyboard_view.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?><android.inputmethodservice.KeyboardView xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/keyboard" android:layout_width="match_parent" android:layout_height="wrap_content" android:background="#222222"/>
+          EOF
+          
+          cat > app/build.gradle << 'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.tv.keyboard'
+              compileSdk 34
+              defaultConfig { applicationId "com.tv.keyboard"; minSdk 21; targetSdk 34; versionCode 1; versionName "1.0" }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+          }
+          EOF
+          
+          echo "include ':app'" > settings.gradle
+          echo "rootProject.name = \"Auto2DigitTVKeyboard\"" >> settings.gradle
+          
+          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle-8.5-bin.zip
+          echo "$PWD/gradle-8.5/bin" >> $GITHUB_PATH
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: Auto2Digit-TV-Keyboard-APK
           path: app/build/outputs/apk/debug/app-debug.apk
